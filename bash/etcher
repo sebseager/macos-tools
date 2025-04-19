@@ -45,6 +45,9 @@ get_args() {
     esac
   done
   image="${positional[0]}"
+  if [[ -z "$image" ]]; then
+    echo "missing required argument <image>"; usage; exit 1
+  fi
   return 0
 }
 
@@ -72,25 +75,19 @@ echo_disks() {
 }
 
 get_args "$@"
-echo
 
 # confirm that image exists
-if [[ ! -f "$image" ]]; then
-  echo "${RED}error${RST}: no such file '$image'"
-  exit 1
-fi
 if [[ ! -r "$image" ]]; then
-  echo "${RED}error${RST}: cannot read '$image'"
-  exit 1
+  echo "${RED}error${RST}: cannot read '$image'"; exit 1
 fi
 if ! file -b --mime-type "$image" | grep -q 'iso'; then
-  echo "${RED}error${RST}: invalid disk image '$image'"
-  exit 1
+  echo "${RED}error${RST}: invalid disk image '$image'"; exit 1
 fi
 
 set -e
 
 # if file ends in .iso, try to convert to .dmg
+echo
 if [[ "$image" =~ \.iso$ ]]; then
   dmg="${image%.iso}.dmg"
   printf "%s\n" "It looks like that's a .iso image, and I'd recommend converting it to"
@@ -117,7 +114,7 @@ if [[ "$image" =~ \.iso$ ]]; then
       exit 1
     fi
   else
-    echo "skipping conversion"
+    echo "skipping conversion and continuing with the iso"
   fi
 fi
 
