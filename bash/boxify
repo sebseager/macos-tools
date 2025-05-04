@@ -13,6 +13,7 @@ usage() {
   color_names=${color_names%, }
 
   # help message
+  local me
   me=$(basename -- "$0")
   cat << HEREDOC
 usage: $me -l <pad> -r <pad> -c <clr> -b <clr>
@@ -62,11 +63,11 @@ get_args() {
       -r) rpadding="$2"; shift; shift ;;
       -c) text_color="$2"; shift; shift ;;
       -b) line_color="$2"; shift; shift ;;
-      *) echo "unknown option '$1'"; usage; exit 1 ;;
+      *) echo "unknown option '$1'" >&2; usage >&2; exit 1 ;;
     esac
   done
   if [[ ! ("$lpadding" =~ ^[0-9]+$ && "$rpadding" =~ ^[0-9]+$) ]]; then
-    echo "error: padding must be a positive integer"
+    echo "error: padding must be a positive integer" >&2
     exit 1
   fi
   return 0
