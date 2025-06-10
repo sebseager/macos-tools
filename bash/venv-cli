@@ -3,53 +3,10 @@
 # venv-cli - python virtual environment manager
 #
 
-VENV_CLI_VERSION="0.2"
-
-# this check only detects execution under bash, but should prevent most 
-# shells from going any further when sourced, which is probably okay
-if (return 0 2>/dev/null); then
-  export VENV_CLI_VERSION
-
-  _venv_activate() {
-    # shellcheck disable=SC3043
-    local target="${1:-.venv}"
-    if [ -f "$target/bin/activate" ]; then
-      # shellcheck disable=SC1091
-      . "$target/bin/activate"
-    else
-      echo "venv not found: '$target'"
-    fi
-  }
-  
-  _venv_deactivate() {
-    if command -v deactivate >/dev/null 2>&1; then
-      deactivate
-    else
-      echo "no active venv to deactivate"
-    fi
-  }
-  
-  venv() {
-    case "$1" in
-      a|activate) shift; _venv_activate "$@" ;;
-      d|deactivate) _venv_deactivate ;;
-      v|version|-v|--version) echo "$VENV_CLI_VERSION" ;;
-      *) command venv-cli --wrapped "$@" ;;
-    esac
-  }
-
-  # warn if venv-cli isn't available
-  if ! command -v venv-cli >/dev/null 2>&1; then
-    echo "warning: venv-cli not found in PATH"
-  fi
-
-  # if this script is being sourced, stop now
-  return 0
-fi
-
 set -euo pipefail
 
 # constants
+VENV_CLI_VERSION="0.3"
 DEFAULT_VENV=".venv"
 
 # colors
@@ -67,15 +24,17 @@ usage() {
 ${BLD}usage${RST}: venv <command> [args]
 
 ${BLD}commands${RST}:
-  ${CYN}init (i)${RST} [path]       create new venv
-  ${CYN}activate (a)${RST} [path]   activate venv
-  ${CYN}deactivate (d)${RST}        deactivate venv
-  ${CYN}remove (rm)${RST} [path]    remove venv (-f to force)
-  ${CYN}doctor (doc)${RST}          perform health check
-  ${CYN}version (v)${RST}           show version
+  ${CYN}help (h)${RST}              shows this help
+  ${CYN}init (i)${RST} [path]       creates new venv
+  ${CYN}activate (a)${RST} [path]   activates venv
+  ${CYN}deactivate (d)${RST}        deactivates venv
+  ${CYN}remove (rm)${RST} [path]    removes venv (-f to force)
+  ${CYN}version (v)${RST}           shows version
+  ${CYN}doctor${RST}                performs health check
+  ${CYN}shellenv${RST}              echoes shell setup
 
 ${BLD}notes${RST}:
-  - default [path] is always '.venv'
+  - default [path] is always '${DEFAULT_VENV}'
 HEREDOC
 
 # if we were called directly, show first-time setup
@@ -84,8 +43,7 @@ if (( $1 )); then
 
 ${BLD}${MGN}first-time setup${RST}
   1. make sure this script is on your PATH
-  2. source this script in your shell's rc file
-     (e.g., ${BLD}source $(basename -- "$0")${RST})
+  2. add to your shell's rc file: ${BLD}eval \$(venv-cli shellenv)${RST}
   3. restart your shell, then use ${BLD}venv${RST} not ${BLD}venv-cli${RST}
 HEREDOC
 fi
@@ -134,6 +92,40 @@ venv_remove() {
       exit 1
     fi
   fi
+}
+
+venv_shellenv() {
+  cat << 'HEREDOC'
+export VENV_CLI_VERSION="0.2"
+
+_venv_activate() {
+  # shellcheck disable=SC3043
+  local target="${1:-.venv}"
+  if [ -f "$target/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    . "$target/bin/activate"
+  else
+    echo "venv not found: '$target'"
+  fi
+}
+
+_venv_deactivate() {
+  if command -v deactivate >/dev/null 2>&1; then
+    deactivate
+  else
+    echo "no active venv to deactivate"
+  fi
+}
+
+venv() {
+  case "$1" in
+    a|activate) shift; _venv_activate "$@" ;;
+    d|deactivate) _venv_deactivate ;;
+    v|version|-v|--version) echo "$VENV_CLI_VERSION" ;;
+    *) command venv-cli --wrapped "$@" ;;
+  esac
+}
+HEREDOC
 }
 
 rc_file() {
@@ -282,7 +274,8 @@ fi
 case $cmd in
   i|init)         venv_init "$@" ;;
   rm|remove)      venv_remove "$@" ;;
-  doc|doctor)     venv_doctor ;;
+  doctor)     venv_doctor ;;
+  shellenv)       venv_shellenv ;;
   h|help|-h|--help) usage $direct_call ;;
   *) echo "${RED}unknown command${RST}: $cmd" >&2; usage $direct_call >&2; exit 1 ;;
 esac
