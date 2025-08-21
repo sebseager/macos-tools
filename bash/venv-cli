@@ -453,15 +453,26 @@ _venv_doctor() {
     # check if venv command would be available in a fresh shell
     (( total++ ))
     set +e
-    shell_check=$(
-      "$current_shell" -i -c '
-        if command -v venv >/dev/null 2>&1 && \
-          command -v _venv_activate >/dev/null 2>&1 && \
-          command -v _venv_deactivate >/dev/null 2>&1; then
-          echo OK
-        fi
-      ' 2>/dev/null
-    )
+    local shell_check
+    shell_check=""
+    case "$current_shell" in
+      zsh|bash)
+        shell_check=$("$current_shell" -i -c '
+          if command -v venv >/dev/null 2>&1 && \
+            command -v _venv_activate >/dev/null 2>&1 && \
+            command -v _venv_deactivate >/dev/null 2>&1; then
+            echo OK
+          fi
+        ' 2>/dev/null)
+        ;;
+      fish)
+        shell_check=$(fish -i -c '
+          if type -q venv; and type -q _venv_activate; and type -q _venv_deactivate
+            echo OK
+          end
+        ' 2>/dev/null)
+        ;;
+    esac
     if [[ "$shell_check" == "OK" ]]; then
       echo "${GRN}${total}. new shell loads venv cli correctly${RST}"
       (( passed++ ))
