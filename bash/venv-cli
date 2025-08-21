@@ -83,6 +83,7 @@ ${BLD}commands${RST}:
   ${CYN}activate (a)${RST} [path]   activates venv
   ${CYN}deactivate (d)${RST}        deactivates venv
   ${CYN}remove (rm)${RST} [path]    removes venv (-f to force)
+  ${CYN}list (ls)${RST}             lists venvs in current directory
   ${CYN}doctor${RST}                performs health check
   ${CYN}shellenv${RST}              echoes shell setup
 
@@ -178,6 +179,16 @@ _venv_remove() {
   fi
 }
 
+_venv_list() {
+  for item in .* *; do
+    [[ "$item" == "." || "$item" == ".." ]] && continue
+    [[ -d "$item" ]] || continue
+    if [[ -f "$item/bin/activate" && -f "$item/pyvenv.cfg" ]]; then
+      echo "$item"
+    fi
+  done
+}
+
 _venv_shellenv() {
   local shell
   shell=$(__detect_shell)
@@ -227,6 +238,7 @@ if whence -w compdef >/dev/null 2>&1; then
           "activate[activates venv]" \
           "deactivate[deactivates venv]" \
           "remove[removes venv]" \
+          "list[lists venvs in current directory]" \
           "doctor[performs health check]" \
           "shellenv[echoes shell setup]"
         ;;
@@ -299,6 +311,7 @@ function __venv_complete_commands
   echo activate\tactivates\ venv
   echo deactivate\tdeactivates\ venv
   echo remove\tremoves\ venv
+  echo list\tlists\ venvs\ in\ current\ directory
   echo doctor\tperforms\ health check
   echo shellenv\techoes\ shell setup
 end
@@ -345,7 +358,7 @@ _venv_completion() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-  local commands="help version init activate deactivate remove doctor shellenv"
+  local commands="help version init activate deactivate remove list doctor shellenv"
 
   if (( COMP_CWORD == 1 )); then
     COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
@@ -478,6 +491,7 @@ fi
 case $cmd in
   i|init)         _venv_init "$@" ;;
   rm|remove)      _venv_remove "$@" ;;
+  list|ls)        _venv_list ;;
   doctor)         _venv_doctor ;;
   shellenv)       _venv_shellenv ;;
   a|activate)     echo "${RED}invalid usage${RST}: please use ${BLD}venv $cmd${RST}" >&2; exit 1 ;;
