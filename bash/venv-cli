@@ -32,7 +32,7 @@ __detect_shell() {
   # try to detect shell from PPID first (more reliable)
   local parent_process
   if command -v ps >/dev/null 2>&1; then
-    parent_process=$(ps -p $PPID -o comm= 2>/dev/null || true)
+    parent_process=$(ps -p "$PPID" -o comm= 2>/dev/null || true)
     parent_process=${parent_process##*/}  # strip path
     case "$parent_process" in
       zsh|bash|fish|ksh|sh) echo "$parent_process"; return ;;
@@ -43,7 +43,7 @@ __detect_shell() {
   if [[ -n "${SHELL:-}" ]]; then
     basename "$SHELL"
   else
-    echo "bash"  # default to bash
+    echo "${0##*/}"
   fi
 }
 
@@ -61,8 +61,9 @@ __rc_file() {
 
 __indent() {
   # split input on newlines and indent each line
+  local first_line
   first_line=1
-  echo -e "$1" | while IFS= read -r line; do
+  printf '%s\n' "$1" | while IFS= read -r line; do
     if (( first_line )); then
       first_line=0
       printf "└─ %s\n" "$line"
@@ -157,13 +158,21 @@ _venv_remove() {
     echo "${RED}venv not found${RST}: '${name}'" >&2
     exit 1
   fi
+  if [[ "$name" == "." || "$name" == ".." || "$name" == "/" ]]; then
+    echo "${RED}for safety, cannot remove '.', '..', or '/'${RST}" >&2
+    exit 1
+  fi
+  if [[ ! -f "$name/bin/activate" || ! -f "$name/pyvenv.cfg" ]]; then
+    echo "${RED}not a venv${RST}: '${name}'" >&2
+    exit 1
+  fi
   local answer;
   while (( do_remove == 0 )); do
     printf "%s" "${CYN}>> do you want to remove '${name}'?${RST} (y/N) "
     read -r answer
-    if [[ "$answer" =~ ^[yY] ]]; then
+    if [[ "$answer" =~ ^([yY])$ ]]; then
       do_remove=1
-    elif [[ "$answer" =~ ^[nN] ]]; then
+    elif [[ "$answer" =~ ^([nN])$ ]]; then
       echo "${RED}okay, aborting now${RST}"
       exit 0
     fi
