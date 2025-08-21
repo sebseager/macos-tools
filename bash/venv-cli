@@ -96,7 +96,10 @@ if (( $1 )); then
 
 ${BLD}${MGN}first-time setup${RST}
   1. make sure this script is on your PATH
-  2. add to your shell's rc file: ${BLD}eval \$(venv-cli shellenv)${RST}
+  2. add a line to your shell's rc file
+       ${MGN}zshrc${RST}     ${BLD}eval "\$(venv-cli shellenv)"${RST}
+       ${MGN}fishrc${RST}    ${BLD}venv-cli shellenv | source${RST}
+       ${MGN}bashrc${RST}    ${BLD}eval "\$(venv-cli shellenv)"${RST}
   3. restart your shell, then use ${BLD}venv${RST} not ${BLD}venv-cli${RST}
 HEREDOC
 fi
@@ -182,7 +185,6 @@ _venv_shellenv() {
   case "$shell" in
     zsh)
       cat << 'HEREDOC'
-# ---- venv zsh functions ----
 _venv_activate() {
   local target="${1:-.venv}"
   if [ -f "$target/bin/activate" ]; then
@@ -191,6 +193,7 @@ _venv_activate() {
     echo "venv not found: '$target'"
   fi
 }
+
 _venv_deactivate() {
   if command -v deactivate >/dev/null 2>&1; then
     deactivate
@@ -198,6 +201,7 @@ _venv_deactivate() {
     echo "no active venv to deactivate"
   fi
 }
+
 venv() {
   case "$1" in
     a|activate) shift; _venv_activate "$@" ;;
@@ -254,7 +258,6 @@ HEREDOC
       ;;
     fish)
       cat << 'HEREDOC'
-# ---- venv fish functions ----
 function _venv_activate
   set -l target $argv[1]
   if test -z "$target"
@@ -266,6 +269,7 @@ function _venv_activate
     echo "venv not found: '$target'"
   end
 end
+
 function _venv_deactivate
   if functions -q deactivate
     deactivate
@@ -273,6 +277,7 @@ function _venv_deactivate
     echo "no active venv to deactivate"
   end
 end
+
 function venv
   switch $argv[1]
     case a activate
@@ -297,6 +302,7 @@ function __venv_complete_commands
   echo doctor\tperforms\ health check
   echo shellenv\techoes\ shell setup
 end
+
 complete -c venv -f
 complete -c venv -n "__fish_use_subcommand" -a "(__venv_complete_commands)"
 complete -c venv -n "__fish_seen_subcommand_from init activate" -a "(__fish_complete_directories)"
@@ -306,7 +312,6 @@ HEREDOC
     *)
       # default to bash
       cat << 'HEREDOC'
-# ---- venv bash functions ----
 _venv_activate() {
   local target="${1:-.venv}"
   if [ -f "$target/bin/activate" ]; then
@@ -315,6 +320,7 @@ _venv_activate() {
     echo "venv not found: '$target'"
   fi
 }
+
 _venv_deactivate() {
   if command -v deactivate >/dev/null 2>&1; then
     deactivate
@@ -322,6 +328,7 @@ _venv_deactivate() {
     echo "no active venv to deactivate"
   fi
 }
+
 venv() {
   case "$1" in
     a|activate) shift; _venv_activate "$@" ;;
@@ -371,45 +378,24 @@ _venv_doctor() {
   (
     local passed=0
     local total=0
-    local rc_path
+    local rc_path current_shell hint
     printf "%s\n\n" "checking venv installation... 🔍"
 
     # check 1: get rc file path
     rc_path=$(__rc_file)
+    current_shell=$(__detect_shell)
     (( total++ ))
     if [[ -f "$rc_path" ]]; then
       echo "${GRN}${total}. found shell rc file${RST}: $rc_path"
       (( passed++ ))
     else
       echo "${YLW}${total}. shell not supported or missing rc file${RST}: '$rc_path'"
-      hint="if your shell ('$(__detect_shell)') is supported, create its rc file with \n"
+      hint="if your shell ('$current_shell') is supported, create its rc file with \n"
       hint+="'touch $rc_path'"
       __indent "$hint"
     fi
 
-    # check 2: rc file contains eval venv-cli shellenv
-    (( total++ ))
-    local eval_lines=()
-    while IFS= read -r line; do
-      eval_lines+=("$line")
-    done < <(grep -E 'eval\s+"[^"]*venv-cli\s+shellenv[^"]*"' "$rc_path" 2>/dev/null)
-    n_eval_lines=${#eval_lines[@]}
-    if [[ $n_eval_lines -eq 0 ]]; then
-      echo "${YLW}${total}. venv-cli shellenv may not be evaluated${RST}"
-      rc_base="${rc_path##*/}"  # basename of rc file
-      hint="add this line to your $rc_base: \n"
-      hint+="${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
-      __indent "$hint"
-    else
-      eval_line="${eval_lines[$n_eval_lines-1]}"
-      echo "${GRN}${total}. found eval line${RST}: $eval_line"
-      (( passed++ ))
-      if [[ $n_eval_lines -gt 1 ]]; then
-        __indent "${YLW}found $n_eval_lines eval commands, using last${RST}"
-      fi
-    fi
-
-    # check 3: try to run shellenv command and validate its output
+    # check 2: try to run shellenv command and validate its output
     (( total++ ))
     set +e
     shellenv_stdout=$(venv-cli shellenv 2>/dev/null)
@@ -430,7 +416,7 @@ _venv_doctor() {
     fi
     set -e
 
-    # checks 4-5: functions
+    # checks 3-4: functions
     (( total++ ))
     if command -v _venv_activate >/dev/null 2>&1; then
       echo "${GRN}${total}. activate function is defined${RST}"
@@ -454,7 +440,12 @@ _venv_doctor() {
       printf "\n%s\n" "${RED}health check failed!${RST} 😱 ($passed/$total)"
       hint="venv may not be installed correctly; please check that:\n"
       hint+=" 1. venv-cli is on your PATH somewhere\n"
-      hint+=" 2. your shell's rc file contains: ${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
+      hint+=" 2. your shell's rc file contains: "
+      if [[ "$current_shell" == "zsh" || "$current_shell" == "bash" ]]; then
+        hint+="${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
+      elif [[ "$current_shell" == "fish" ]]; then
+        hint+="${BLD}venv-cli shellenv | source${RST}"
+      fi
       __indent "$hint"
       return 1
     fi
