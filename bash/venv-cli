@@ -38,7 +38,7 @@ __detect_shell() {
       zsh|bash|fish|ksh|sh) echo "$parent_process"; return ;;
     esac
   fi
-  
+
   # fall back to SHELL env var
   if [[ -n "${SHELL:-}" ]]; then
     basename "$SHELL"
@@ -56,39 +56,6 @@ __rc_file() {
     fish) echo "$HOME/.config/fish/config.fish" ;;
     sh) echo "$HOME/.profile" ;;
     *) echo "$HOME/.bashrc" ;;
-  esac
-}
-
-__completions_available() {
-  local shell="$1"
-  case "$shell" in
-    zsh)
-      # Check if zsh completion system is available
-      # _arguments is a core zsh completion function
-      if command -v _arguments >/dev/null 2>&1; then
-        return 0
-      fi
-      return 1
-      ;;
-    bash)
-      # Check if bash completion is available
-      # _init_completion is a core bash completion function
-      if command -v _init_completion >/dev/null 2>&1; then
-        return 0
-      fi
-      return 1
-      ;;
-    fish)
-      # Check if fish completion is available
-      # complete is a core fish completion function
-      if command -v complete >/dev/null 2>&1; then
-        return 0
-      fi
-      return 1
-      ;;
-    *)
-      return 1
-      ;;
   esac
 }
 
@@ -211,10 +178,11 @@ _venv_remove() {
 _venv_shellenv() {
   local shell
   shell=$(__detect_shell)
-  
+
   case "$shell" in
     zsh)
       cat << 'HEREDOC'
+# ---- venv zsh functions ----
 _venv_activate() {
   local target="${1:-.venv}"
   if [ -f "$target/bin/activate" ]; then
@@ -234,55 +202,60 @@ venv() {
   case "$1" in
     a|activate) shift; _venv_activate "$@" ;;
     d|deactivate) _venv_deactivate ;;
-    v|version|-v|--version) echo "$VENV_CLI_VERSION" ;;
+    v|version|-v|--version) command venv-cli --wrapped version ;;
     *) command venv-cli --wrapped "$@" ;;
   esac
 }
-HEREDOC
-      
-      if __completions_available zsh; then
-        cat << 'HEREDOC'
-# zsh completions
-#compdef venv
-_venv() {
-  local -a commands
-  commands=(
-    'help:shows help'
-    'version:shows version'
-    'init:creates new venv'
-    'activate:activates venv'
-    'deactivate:deactivates venv'
-    'remove:removes venv'
-    'doctor:performs health check'
-    'shellenv:echoes shell setup'
-  )
-  _arguments -C \
-    '1: :->command' \
-    '*: :->args'
-  case $state in
-    command)
-      _describe -t commands 'venv commands' commands
-      ;;
-    args)
-      case $words[2] in
-        init|activate)
-          _files -/
+
+# ---- venv zsh completion ----
+if whence -w compdef >/dev/null 2>&1; then
+  _venv_zsh_complete() {
+    emulate -L zsh
+    setopt local_options no_aliases
+    local -a _venv_cmds _venv_cmdnames
+    _venv_cmds=(
+      'help:shows help'
+      'version:shows version'
+      'init:creates new venv'
+      'activate:activates venv'
+      'deactivate:deactivates venv'
+      'remove:removes venv'
+      'doctor:performs health check'
+      'shellenv:echoes shell setup'
+    )
+    _venv_cmdnames=(help version init activate deactivate remove doctor shellenv)
+    if autoload -Uz _arguments 2>/dev/null; then
+      autoload -Uz _files _describe 2>/dev/null || true
+      _arguments -C \
+        '1:command:->command' \
+        '*:: :->args'
+      case $state in
+        command)
+          _describe -t commands 'venv commands' _venv_cmds
           ;;
-        remove)
-          _arguments \
-            '-f[force removal without confirmation]' \
-            '*:directory:_files -/'
+        args)
+          case $words[2] in
+            init|activate)
+              _files -/
+              ;;
+            remove)
+              _arguments \
+                '-f[force removal without confirmation]' \
+                '*:directory:_files -/'
+              ;;
+          esac
           ;;
       esac
-      ;;
-  esac
-}
-_venv "$@"
+      return
+    fi
+  }
+  compdef _venv_zsh_complete venv
+fi
 HEREDOC
-      fi
       ;;
     fish)
       cat << 'HEREDOC'
+# ---- venv fish functions ----
 function _venv_activate
   set -l target $argv[1]
   if test -z "$target"
@@ -308,16 +281,13 @@ function venv
     case d deactivate
       _venv_deactivate
     case v version -v --version
-      echo "$VENV_CLI_VERSION"
+      command venv-cli --wrapped version
     case '*'
       command venv-cli --wrapped $argv
   end
 end
-HEREDOC
-      
-      if __completions_available fish; then
-        cat << 'HEREDOC'
-# fish completions
+
+# ---- venv fish completion ----
 function __venv_complete_commands
   echo help\tshows\ help
   echo version\tshows\ version
@@ -325,19 +295,19 @@ function __venv_complete_commands
   echo activate\tactivates\ venv
   echo deactivate\tdeactivates\ venv
   echo remove\tremoves\ venv
-  echo doctor\tperforms\ health\ check
-  echo shellenv\techoes\ shell\ setup
+  echo doctor\tperforms\ health check
+  echo shellenv\techoes\ shell setup
 end
 complete -c venv -f
 complete -c venv -n "__fish_use_subcommand" -a "(__venv_complete_commands)"
 complete -c venv -n "__fish_seen_subcommand_from init activate" -a "(__fish_complete_directories)"
 complete -c venv -n "__fish_seen_subcommand_from remove" -a "(__fish_complete_directories)" -s f -d "force removal without confirmation"
 HEREDOC
-      fi
       ;;
     *)
       # default to bash
       cat << 'HEREDOC'
+# ---- venv bash functions ----
 _venv_activate() {
   local target="${1:-.venv}"
   if [ -f "$target/bin/activate" ]; then
@@ -357,39 +327,43 @@ venv() {
   case "$1" in
     a|activate) shift; _venv_activate "$@" ;;
     d|deactivate) _venv_deactivate ;;
-    v|version|-v|--version) echo "$VENV_CLI_VERSION" ;;
+    v|version|-v|--version) command venv-cli --wrapped version ;;
     *) command venv-cli --wrapped "$@" ;;
   esac
 }
-HEREDOC
-      
-      if __completions_available bash; then
-        cat << 'HEREDOC'
-# bash completions
+
+# ---- venv bash completion ----
 _venv_completion() {
-  local cur prev words cword
-  _init_completion || return
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
   local commands="help version init activate deactivate remove doctor shellenv"
-  if [[ $cword -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+
+  if (( COMP_CWORD == 1 )); then
+    COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
     return 0
   fi
-  case "${words[1]}" in
+
+  case "${COMP_WORDS[1]}" in
     init|activate)
-      _filedir -d
+      COMPREPLY=( $(compgen -d -- "$cur") )
       ;;
     remove)
       if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-f" -- "$cur"))
+        COMPREPLY=( $(compgen -W "-f" -- "$cur") )
       else
-        _filedir -d
+        COMPREPLY=( $(compgen -d -- "$cur") )
       fi
+      ;;
+    *)
+      COMPREPLY=()
       ;;
   esac
 }
 complete -F _venv_completion venv
 HEREDOC
-      fi
       ;;
   esac
 }
@@ -400,7 +374,7 @@ _venv_doctor() {
     local total=0
     local rc_path
     printf "%s\n\n" "checking venv installation... 🔍"
-    
+
     # check 1: get rc file path
     rc_path=$(__rc_file)
     (( total++ ))
@@ -413,7 +387,7 @@ _venv_doctor() {
       hint+="'touch $rc_path'"
       __indent "$hint"
     fi
-    
+
     # check 2: rc file contains eval venv-cli shellenv
     (( total++ ))
     local eval_lines=()
@@ -456,7 +430,7 @@ _venv_doctor() {
       __indent "check that ${BLD}venv-cli${RST} is on your PATH"
     fi
     set -e
-    
+
     # checks 4-5: functions
     (( total++ ))
     if command -v _venv_activate >/dev/null 2>&1; then
@@ -465,7 +439,7 @@ _venv_doctor() {
     else
       echo "${RED}${total}. activate function is missing${RST}"
     fi
-    
+
     (( total++ ))
     if command -v _venv_deactivate >/dev/null 2>&1; then
       echo "${GRN}${total}. deactivate function is defined${RST}"
@@ -473,7 +447,7 @@ _venv_doctor() {
     else
       echo "${RED}${total}. deactivate function is missing${RST}"
     fi
-    
+
     # summary
     if (( passed == total )); then
       printf "\n%s\n" "${GRN}health check passed!${RST} 🚀 ($passed/$total)"
