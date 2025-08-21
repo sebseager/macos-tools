@@ -1,0 +1,23 @@
+#!/usr/bin/env zsh
+#
+# my zsh prompt configuration
+#
+
+# configure git at prompt
+autoload -Uz vcs_info  # be careful that you don't do this twice
+zstyle ':vcs_info:*' enable git
+zstyle ':vcs_info:git:*' formats $'\ue0a0 %b'  # shows current branch
+zstyle ':vcs_info:git:*' actionformats $'\ue0a0 %b (%a)'  # e.g., rebase, merge, etc.
+
+# print user, host, pwd, etc. on a line above the actual prompt
+# https://zsh.sourceforge.io/Doc/Release/Prompt-Expansion.html
+precmd() {
+  vcs_info
+  setopt prompt_subst
+  print -rP '%F{12}%n@%m%f %F{10}%B%2~%b%f  %F{11}${vcs_info_msg_0_}%f'
+}
+
+# configure the prompt line itself
+PROMPT='%(?.%F{14}.%F{9})%(?..[%?] )%#%f '
+RPROMPT=' %F{8}%D{%K:%M:%S.%3.}%f'
+
