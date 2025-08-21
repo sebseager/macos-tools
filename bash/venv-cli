@@ -9,7 +9,7 @@ set -euo pipefail
 # constants
 ##
 
-VENV_CLI_VERSION="0.4"
+CLI_VERSION="0.4"
 DEFAULT_VENV=".venv"
 
 ##
@@ -209,47 +209,46 @@ venv() {
 
 # ---- venv zsh completion ----
 if whence -w compdef >/dev/null 2>&1; then
-  _venv_zsh_complete() {
-    emulate -L zsh
-    setopt local_options no_aliases
-    local -a _venv_cmds _venv_cmdnames
-    _venv_cmds=(
-      'help:shows help'
-      'version:shows version'
-      'init:creates new venv'
-      'activate:activates venv'
-      'deactivate:deactivates venv'
-      'remove:removes venv'
-      'doctor:performs health check'
-      'shellenv:echoes shell setup'
-    )
-    _venv_cmdnames=(help version init activate deactivate remove doctor shellenv)
-    if autoload -Uz _arguments 2>/dev/null; then
-      autoload -Uz _files _describe 2>/dev/null || true
-      _arguments -C \
-        '1:command:->command' \
-        '*:: :->args'
-      case $state in
-        command)
-          _describe -t commands 'venv commands' _venv_cmds
-          ;;
-        args)
-          case $words[2] in
-            init|activate)
-              _files -/
-              ;;
-            remove)
-              _arguments \
-                '-f[force removal without confirmation]' \
-                '*:directory:_files -/'
-              ;;
-          esac
-          ;;
-      esac
-      return
-    fi
+  _venv() {
+    local line state
+    _arguments -C \
+      "1: :->cmds" \
+      "*::arg:->args"
+    case "$state" in
+      cmds)
+        _values "venv command" \
+          "help[shows this help]" \
+          "version[shows version]" \
+          "init[creates new venv]" \
+          "activate[activates venv]" \
+          "deactivate[deactivates venv]" \
+          "remove[removes venv]" \
+          "doctor[performs health check]" \
+          "shellenv[echoes shell setup]"
+        ;;
+      args)
+        case $line[1] in
+          init)
+            _arguments \
+              '1:directory:_files -/'
+            ;;
+          activate)
+            _arguments \
+              '1:directory:_files -/'
+            ;;
+          remove)
+            _arguments \
+              '-f[force removal without confirmation]' \
+              '1:directory:_files -/'
+            ;;
+          *)
+            # no additional arguments for other commands
+            ;;
+        esac
+        ;;
+    esac
   }
-  compdef _venv_zsh_complete venv
+  compdef _venv venv
 fi
 HEREDOC
       ;;
@@ -477,6 +476,6 @@ case $cmd in
   a|activate)     echo "${RED}invalid usage${RST}: please use ${BLD}venv $cmd${RST}" >&2; exit 1 ;;
   d|deactivate)   echo "${RED}invalid usage${RST}: please use ${BLD}venv $cmd${RST}" >&2; exit 1 ;;
   h|help|-h|--help) _venv_usage $direct_call ;;
-  v|version|-v|--version) echo "$VENV_CLI_VERSION" ;;
+  v|version|-v|--version) echo "$CLI_VERSION" ;;
   *) echo "${RED}unknown command${RST}: $cmd" >&2; _venv_usage $direct_call >&2; exit 1 ;;
 esac
