@@ -5,11 +5,17 @@
 
 set -euo pipefail
 
+##
 # constants
-VENV_CLI_VERSION="0.3"
+##
+
+VENV_CLI_VERSION="0.4"
 DEFAULT_VENV=".venv"
 
+##
 # colors
+##
+
 BLD=$(tput bold)
 RST=$(tput sgr0)
 RED=$(tput setaf 1)
@@ -18,8 +24,55 @@ YLW=$(tput setaf 3)
 MGN=$(tput setaf 5)
 CYN=$(tput setaf 6)
 
-# usage
-usage() {
+##
+# helpers
+##
+
+__detect_shell() {
+  # try to detect shell from PPID first (more reliable)
+  local parent_process
+  if command -v ps >/dev/null 2>&1; then
+    parent_process=$(ps -p $PPID -o comm= 2>/dev/null || true)
+    parent_process=${parent_process##*/}  # strip path
+    case "$parent_process" in
+      zsh|bash|fish|ksh|sh) echo "$parent_process"; return ;;
+    esac
+  fi
+  
+  # fall back to SHELL env var
+  if [[ -n "${SHELL:-}" ]]; then
+    basename "$SHELL"
+  else
+    echo "bash"  # default to bash
+  fi
+}
+
+__rc_file() {
+  local shell
+  shell=$(__detect_shell)
+  case "$shell" in
+    zsh) echo "$HOME/.zshrc" ;;
+    ksh) echo "$HOME/.kshrc" ;;
+    fish) echo "$HOME/.config/fish/config.fish" ;;
+    sh) echo "$HOME/.profile" ;;
+    *) echo "$HOME/.bashrc" ;;
+  esac
+}
+
+__indent() {
+  # split input on newlines and indent each line
+  first_line=1
+  echo -e "$1" | while IFS= read -r line; do
+    if (( first_line )); then
+      first_line=0
+      printf "└─ %s\n" "$line"
+    else
+      printf "   %s\n" "$line"
+    fi
+  done
+}
+
+_venv_usage() {
   cat << HEREDOC
 ${BLD}usage${RST}: venv <command> [args]
 
@@ -49,18 +102,46 @@ HEREDOC
 fi
 }
 
+##
 # core actions
-venv_init() {
-  local target=${1:-.venv}
+##
+
+_venv_init() {
+  local target=${1:-$DEFAULT_VENV}
+  # refuse if path exists but is not a directory
+  if [[ -e $target && ! -d $target ]]; then
+    echo "${RED}path exists and is not a directory${RST}: '$target'" >&2
+    exit 1
+  fi
+
   if [[ -d $target ]]; then
     echo "${YLW}venv already exists${RST}: '$target'"
-  else
-    echo "${GRN}creating new venv${RST}: '$target'..."
-    python3 -m venv "$target"
+    return 0
+  fi
+
+  # ensure python3 is available
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "${RED}python3 not found${RST}, please ensure it is installed and on your PATH" >&2
+    exit 1
+  fi
+
+  echo "${GRN}creating new venv${RST}: '$target'..."
+  local create_output create_status
+  set +e
+  create_output=$(python3 -m venv "$target" 2>&1)
+  create_status=$?
+  set -e
+  if (( create_status != 0 )); then
+    echo "${RED}failed to create venv${RST}: '$target'" >&2
+    [[ -n "$create_output" ]] && echo "$create_output" >&2
+    if [[ "$create_output" == *"No module named"* ]]; then
+      __indent "hint: your python3 installation is missing the 'venv' module" >&2
+    fi
+    exit "$create_status"
   fi
 }
 
-venv_remove() {
+_venv_remove() {
   local do_remove=0
   local name="$DEFAULT_VENV"
   for arg in "$@"; do
@@ -94,16 +175,19 @@ venv_remove() {
   fi
 }
 
-venv_shellenv() {
-  cat << HEREDOC
+_venv_shellenv() {
+  local shell
+  shell=$(__detect_shell)
+  
+  case "$shell" in
+    zsh)
+      cat << 'HEREDOC'
 _venv_activate() {
-  # shellcheck disable=SC3043
-  local target="\${1:-.venv}"
-  if [ -f "\$target/bin/activate" ]; then
-    # shellcheck disable=SC1091
-    . "\$target/bin/activate"
+  local target="${1:-.venv}"
+  if [ -f "$target/bin/activate" ]; then
+    . "$target/bin/activate"
   else
-    echo "venv not found: '\$target'"
+    echo "venv not found: '$target'"
   fi
 }
 
@@ -116,53 +200,168 @@ _venv_deactivate() {
 }
 
 venv() {
-  case "\$1" in
-    a|activate) shift; _venv_activate "\$@" ;;
+  case "$1" in
+    a|activate) shift; _venv_activate "$@" ;;
     d|deactivate) _venv_deactivate ;;
-    v|version|-v|--version) echo "\$VENV_CLI_VERSION" ;;
-    *) command venv-cli --wrapped "\$@" ;;
+    v|version|-v|--version) echo "$VENV_CLI_VERSION" ;;
+    *) command venv-cli --wrapped "$@" ;;
   esac
 }
+
+# zsh completions
+#compdef venv
+
+_venv() {
+  local -a commands
+  commands=(
+    'help:shows help'
+    'version:shows version'
+    'init:creates new venv'
+    'activate:activates venv'
+    'deactivate:deactivates venv'
+    'remove:removes venv'
+    'doctor:performs health check'
+    'shellenv:echoes shell setup'
+  )
+
+  _arguments -C \
+    '1: :->command' \
+    '*: :->args'
+
+  case $state in
+    command)
+      _describe -t commands 'venv commands' commands
+      ;;
+    args)
+      case $words[2] in
+        init|activate)
+          _files -/
+          ;;
+        remove)
+          _arguments \
+            '-f[force removal without confirmation]' \
+            '*:directory:_files -/'
+          ;;
+      esac
+      ;;
+  esac
+}
+
+_venv "$@"
 HEREDOC
+      ;;
+    fish)
+      cat << 'HEREDOC'
+function _venv_activate
+  set -l target $argv[1]
+  if test -z "$target"
+    set target ".venv"
+  end
+  if test -f "$target/bin/activate.fish"
+    source "$target/bin/activate.fish"
+  else
+    echo "venv not found: '$target'"
+  end
+end
+
+function _venv_deactivate
+  if functions -q deactivate
+    deactivate
+  else
+    echo "no active venv to deactivate"
+  end
+end
+
+function venv
+  switch $argv[1]
+    case a activate
+      _venv_activate $argv[2..-1]
+    case d deactivate
+      _venv_deactivate
+    case v version -v --version
+      echo "$VENV_CLI_VERSION"
+    case '*'
+      command venv-cli --wrapped $argv
+  end
+end
+
+# fish completions
+function __venv_complete_commands
+  echo help\tshows\ help
+  echo version\tshows\ version
+  echo init\tcreates\ new\ venv
+  echo activate\tactivates\ venv
+  echo deactivate\tdeactivates\ venv
+  echo remove\tremoves\ venv
+  echo doctor\tperforms\ health\ check
+  echo shellenv\techoes\ shell\ setup
+end
+
+complete -c venv -f
+complete -c venv -n "__fish_use_subcommand" -a "(__venv_complete_commands)"
+complete -c venv -n "__fish_seen_subcommand_from init activate" -a "(__fish_complete_directories)"
+complete -c venv -n "__fish_seen_subcommand_from remove" -a "(__fish_complete_directories)" -s f -d "force removal without confirmation"
+HEREDOC
+      ;;
+    *)
+      # default to bash
+      cat << 'HEREDOC'
+_venv_activate() {
+  local target="${1:-.venv}"
+  if [ -f "$target/bin/activate" ]; then
+    . "$target/bin/activate"
+  else
+    echo "venv not found: '$target'"
+  fi
 }
 
-rc_file() {
-  local shell
-  shell=$(basename "$SHELL")
-  case "$shell" in
-    zsh) echo "$HOME/.zshrc" ;;
-    ksh) echo "$HOME/.kshrc" ;;
-    sh) echo "$HOME/.profile" ;;
-    *) echo "$HOME/.bashrc" ;;
+_venv_deactivate() {
+  if command -v deactivate >/dev/null 2>&1; then
+    deactivate
+  else
+    echo "no active venv to deactivate"
+  fi
+}
+
+venv() {
+  case "$1" in
+    a|activate) shift; _venv_activate "$@" ;;
+    d|deactivate) _venv_deactivate ;;
+    v|version|-v|--version) echo "$VENV_CLI_VERSION" ;;
+    *) command venv-cli --wrapped "$@" ;;
   esac
 }
 
-indent() {
-  # Split input on newlines and indent each line
-  first_line=1
-  echo -e "$1" | while IFS= read -r line; do
-    if (( first_line )); then
-      first_line=0
-      printf "└─ %s\n" "$line"
-    else
-      printf "   %s\n" "$line"
-    fi
-  done
+# bash completions
+_venv_completion() {
+  local cur prev words cword
+  _init_completion || return
+  local commands="help version init activate deactivate remove doctor shellenv"
+  if [[ $cword -eq 1 ]]; then
+    COMPREPLY=($(compgen -W "$commands" -- "$cur"))
+    return 0
+  fi
+  case "${words[1]}" in
+    init|activate)
+      _filedir -d
+      ;;
+    remove)
+      if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-f" -- "$cur"))
+      else
+        _filedir -d
+      fi
+      ;;
+  esac
 }
 
-doctor_fail() {
-  printf "\n%s\n" "${RED}health check failed!${RST} 😱 ($1/$2)"
-  hint="venv may not be installed correctly; please check that:\n"
-  hint+=" 1. venv-cli is on your PATH somewhere\n"
-  hint+=" 2. your shell's rc file contains: ${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
-  indent "$hint"
+complete -F _venv_completion venv
+HEREDOC
+      ;;
+  esac
 }
 
-doctor_pass() {
-  printf "\n%s\n" "${GRN}health check passed!${RST} 🚀 ($1/$2)"
-}
-
-venv_doctor() {
+_venv_doctor() {
   (
     local passed=0
     local total=0
@@ -170,16 +369,16 @@ venv_doctor() {
     printf "%s\n\n" "checking venv installation... 🔍"
     
     # check 1: get rc file path
-    rc_path=$(rc_file)
+    rc_path=$(__rc_file)
     (( total++ ))
     if [[ -f "$rc_path" ]]; then
       echo "${GRN}${total}. found shell rc file${RST}: $rc_path"
       (( passed++ ))
     else
       echo "${YLW}${total}. shell not supported or missing rc file${RST}: '$rc_path'"
-      hint="if your shell ('${SHELL}') is supported, create its rc file with \n"
+      hint="if your shell ('$(__detect_shell)') is supported, create its rc file with \n"
       hint+="'touch $rc_path'"
-      indent "$hint"
+      __indent "$hint"
     fi
     
     # check 2: rc file contains eval venv-cli shellenv
@@ -194,13 +393,13 @@ venv_doctor() {
       rc_base="${rc_path##*/}"  # basename of rc file
       hint="add this line to your $rc_base: \n"
       hint+="${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
-      indent "$hint"
+      __indent "$hint"
     else
       eval_line="${eval_lines[$n_eval_lines-1]}"
       echo "${GRN}${total}. found eval line${RST}: $eval_line"
       (( passed++ ))
       if [[ $n_eval_lines -gt 1 ]]; then
-        indent "${YLW}found $n_eval_lines eval commands, using last${RST}"
+        __indent "${YLW}found $n_eval_lines eval commands, using last${RST}"
       fi
     fi
 
@@ -217,11 +416,11 @@ venv_doctor() {
         (( passed++ ))
       else
         echo "${YLW}${total}. shellenv works but produces invalid shell code${RST}"
-        indent "command succeeded but evaluation failed"
+        __indent "command succeeded but evaluation failed"
       fi
     else
       echo "${RED}${total}. shellenv command failed${RST}"
-      indent "check that ${BLD}venv-cli${RST} is on your PATH"
+      __indent "check that ${BLD}venv-cli${RST} is on your PATH"
     fi
     set -e
     
@@ -244,9 +443,13 @@ venv_doctor() {
     
     # summary
     if (( passed == total )); then
-      doctor_pass $passed $total
+      printf "\n%s\n" "${GRN}health check passed!${RST} 🚀 ($passed/$total)"
     else
-      doctor_fail $passed $total
+      printf "\n%s\n" "${RED}health check failed!${RST} 😱 ($passed/$total)"
+      hint="venv may not be installed correctly; please check that:\n"
+      hint+=" 1. venv-cli is on your PATH somewhere\n"
+      hint+=" 2. your shell's rc file contains: ${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
+      __indent "$hint"
       return 1
     fi
   )
@@ -260,10 +463,13 @@ if [[ $cmd == "--wrapped" ]]; then
   cmd=${1:-help}; shift || true
 fi
 case $cmd in
-  i|init)         venv_init "$@" ;;
-  rm|remove)      venv_remove "$@" ;;
-  doctor)         venv_doctor ;;
-  shellenv)       venv_shellenv ;;
-  h|help|-h|--help) usage $direct_call ;;
-  *) echo "${RED}unknown command${RST}: $cmd" >&2; usage $direct_call >&2; exit 1 ;;
+  i|init)         _venv_init "$@" ;;
+  rm|remove)      _venv_remove "$@" ;;
+  doctor)         _venv_doctor ;;
+  shellenv)       _venv_shellenv ;;
+  a|activate)     echo "${RED}invalid usage${RST}: please use ${BLD}venv $cmd${RST}" >&2; exit 1 ;;
+  d|deactivate)   echo "${RED}invalid usage${RST}: please use ${BLD}venv $cmd${RST}" >&2; exit 1 ;;
+  h|help|-h|--help) _venv_usage $direct_call ;;
+  v|version|-v|--version) echo "$VENV_CLI_VERSION" ;;
+  *) echo "${RED}unknown command${RST}: $cmd" >&2; _venv_usage $direct_call >&2; exit 1 ;;
 esac
