@@ -25,11 +25,11 @@ ${BLD}usage${RST}: venv <command> [args]
 
 ${BLD}commands${RST}:
   ${CYN}help (h)${RST}              shows this help
+  ${CYN}version (v)${RST}           shows version
   ${CYN}init (i)${RST} [path]       creates new venv
   ${CYN}activate (a)${RST} [path]   activates venv
   ${CYN}deactivate (d)${RST}        deactivates venv
   ${CYN}remove (rm)${RST} [path]    removes venv (-f to force)
-  ${CYN}version (v)${RST}           shows version
   ${CYN}doctor${RST}                performs health check
   ${CYN}shellenv${RST}              echoes shell setup
 
@@ -95,17 +95,15 @@ venv_remove() {
 }
 
 venv_shellenv() {
-  cat << 'HEREDOC'
-export VENV_CLI_VERSION="0.2"
-
+  cat << HEREDOC
 _venv_activate() {
   # shellcheck disable=SC3043
-  local target="${1:-.venv}"
-  if [ -f "$target/bin/activate" ]; then
+  local target="\${1:-.venv}"
+  if [ -f "\$target/bin/activate" ]; then
     # shellcheck disable=SC1091
-    . "$target/bin/activate"
+    . "\$target/bin/activate"
   else
-    echo "venv not found: '$target'"
+    echo "venv not found: '\$target'"
   fi
 }
 
@@ -118,11 +116,11 @@ _venv_deactivate() {
 }
 
 venv() {
-  case "$1" in
-    a|activate) shift; _venv_activate "$@" ;;
+  case "\$1" in
+    a|activate) shift; _venv_activate "\$@" ;;
     d|deactivate) _venv_deactivate ;;
-    v|version|-v|--version) echo "$VENV_CLI_VERSION" ;;
-    *) command venv-cli --wrapped "$@" ;;
+    v|version|-v|--version) echo "\$VENV_CLI_VERSION" ;;
+    *) command venv-cli --wrapped "\$@" ;;
   esac
 }
 HEREDOC
@@ -156,7 +154,7 @@ doctor_fail() {
   printf "\n%s\n" "${RED}health check failed!${RST} 😱 ($1/$2)"
   hint="venv may not be installed correctly; please check that:\n"
   hint+=" 1. venv-cli is on your PATH somewhere\n"
-  hint+=" 2. your shell's rc file contains 'source venv-cli' or equivalent"
+  hint+=" 2. your shell's rc file contains: ${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
   indent "$hint"
 }
 
@@ -175,83 +173,73 @@ venv_doctor() {
     rc_path=$(rc_file)
     (( total++ ))
     if [[ -f "$rc_path" ]]; then
-      echo "${GRN}found shell rc file${RST}: '$rc_path'"
+      echo "${GRN}${total}. found shell rc file${RST}: $rc_path"
       (( passed++ ))
     else
-      echo "${YLW}shell not supported or missing rc file${RST}: '$rc_path'"
-      hint="if your shell (${SHELL}) is supported, create its rc file with \n"
+      echo "${YLW}${total}. shell not supported or missing rc file${RST}: '$rc_path'"
+      hint="if your shell ('${SHELL}') is supported, create its rc file with \n"
       hint+="'touch $rc_path'"
       indent "$hint"
     fi
     
-    # check 2: rc file contains venv-cli reference
+    # check 2: rc file contains eval venv-cli shellenv
     (( total++ ))
-    local source_lines=()
+    local eval_lines=()
     while IFS= read -r line; do
-      source_lines+=("$line")
-    done < <(grep -E '(source|\.)[ ]+.*venv-cli' "$rc_path" 2>/dev/null)
-    n_source_lines=${#source_lines[@]}
-    if [[ $n_source_lines -eq 0 ]]; then
-      source_line=". venv-cli"  # see if we can keep going
-      echo "${YLW}venv-cli may not be sourced properly${RST}"
+      eval_lines+=("$line")
+    done < <(grep -E 'eval\s+"[^"]*venv-cli\s+shellenv[^"]*"' "$rc_path" 2>/dev/null)
+    n_eval_lines=${#eval_lines[@]}
+    if [[ $n_eval_lines -eq 0 ]]; then
+      echo "${YLW}${total}. venv-cli shellenv may not be evaluated${RST}"
+      rc_base="${rc_path##*/}"  # basename of rc file
+      hint="add this line to your $rc_base: \n"
+      hint+="${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
+      indent "$hint"
     else
-      source_line="${source_lines[$n_source_lines-1]}"
-      echo "${GRN}found source line${RST}: '$source_line'"
+      eval_line="${eval_lines[$n_eval_lines-1]}"
+      echo "${GRN}${total}. found eval line${RST}: $eval_line"
       (( passed++ ))
-      if [[ $n_source_lines -gt 1 ]]; then
-        indent "${YLW}found $n_source_lines source commands, using the last${RST}"
-      fi
-    fi
-    local cli_path=""
-    if [[ "$source_line" =~ (source|\.)[[:space:]]+(.+) ]]; then
-      cli_path="${BASH_REMATCH[2]}"  # everything after source/. + space
-      cli_path="${cli_path#"${cli_path%%[![:space:]]*}"}"  # trim leading spaces
-      cli_path="${cli_path%"${cli_path##*[![:space:]]}"}"  # trim trailing spaces
-      if [[ $cli_path =~ ^[\"\'](.*)[\"\']$ ]]; then
-        cli_path="${BASH_REMATCH[1]}"  # remove quotes if present
+      if [[ $n_eval_lines -gt 1 ]]; then
+        indent "${YLW}found $n_eval_lines eval commands, using last${RST}"
       fi
     fi
 
-    # check 3: try to source venv-cli
+    # check 3: try to run shellenv command and validate its output
     (( total++ ))
     set +e
-    # shellcheck disable=SC1090
-    if source "$cli_path" 2>/dev/null; then    
-      echo "${GRN}sourced cli wrappers${RST}"
-      (( passed++ ))
+    shellenv_stdout=$(venv-cli shellenv 2>/dev/null)
+    shellenv_exit=$?
+    if [[ $shellenv_exit -eq 0 ]]; then
+      (eval "$shellenv_stdout" >/dev/null 2>&1)
+      eval_exit=$?
+      if [[ $eval_exit -eq 0 ]]; then
+        echo "${GRN}${total}. shellenv works and produces valid shell code${RST}"
+        (( passed++ ))
+      else
+        echo "${YLW}${total}. shellenv works but produces invalid shell code${RST}"
+        indent "command succeeded but evaluation failed"
+      fi
     else
-      echo "${RED}failed to source cli${RST}"
-      indent "check that '$cli_path' is a valid file or executable"
+      echo "${RED}${total}. shellenv command failed${RST}"
+      indent "check that ${BLD}venv-cli${RST} is on your PATH"
     fi
     set -e
     
-    # check 4: venv-cli version
-    (( total++ ))
-    local cli_version
-    cli_version=$(venv --version 2>/dev/null || echo "")
-    if [[ "$cli_version" == "$VENV_CLI_VERSION" ]]; then
-      echo "${GRN}version string matches${RST}: '$cli_version'"
-      (( passed++ ))
-    else
-      echo "${RED}version string mismatch${RST}"
-      indent "got '$cli_version' but expected '$VENV_CLI_VERSION'"
-    fi
-    
-    # check 5: functions
+    # checks 4-5: functions
     (( total++ ))
     if command -v _venv_activate >/dev/null 2>&1; then
-      echo "${GRN}activate function is defined${RST}"
+      echo "${GRN}${total}. activate function is defined${RST}"
       (( passed++ ))
     else
-      echo "${RED}activate function is missing${RST}"
+      echo "${RED}${total}. activate function is missing${RST}"
     fi
     
     (( total++ ))
     if command -v _venv_deactivate >/dev/null 2>&1; then
-      echo "${GRN}deactivate function is defined${RST}"
+      echo "${GRN}${total}. deactivate function is defined${RST}"
       (( passed++ ))
     else
-      echo "${RED}deactivate function is missing${RST}"
+      echo "${RED}${total}. deactivate function is missing${RST}"
     fi
     
     # summary
@@ -274,7 +262,7 @@ fi
 case $cmd in
   i|init)         venv_init "$@" ;;
   rm|remove)      venv_remove "$@" ;;
-  doctor)     venv_doctor ;;
+  doctor)         venv_doctor ;;
   shellenv)       venv_shellenv ;;
   h|help|-h|--help) usage $direct_call ;;
   *) echo "${RED}unknown command${RST}: $cmd" >&2; usage $direct_call >&2; exit 1 ;;
