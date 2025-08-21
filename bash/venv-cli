@@ -59,6 +59,39 @@ __rc_file() {
   esac
 }
 
+__completions_available() {
+  local shell="$1"
+  case "$shell" in
+    zsh)
+      # Check if zsh completion system is available
+      # _arguments is a core zsh completion function
+      if command -v _arguments >/dev/null 2>&1; then
+        return 0
+      fi
+      return 1
+      ;;
+    bash)
+      # Check if bash completion is available
+      # _init_completion is a core bash completion function
+      if command -v _init_completion >/dev/null 2>&1; then
+        return 0
+      fi
+      return 1
+      ;;
+    fish)
+      # Check if fish completion is available
+      # complete is a core fish completion function
+      if command -v complete >/dev/null 2>&1; then
+        return 0
+      fi
+      return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 __indent() {
   # split input on newlines and indent each line
   first_line=1
@@ -190,7 +223,6 @@ _venv_activate() {
     echo "venv not found: '$target'"
   fi
 }
-
 _venv_deactivate() {
   if command -v deactivate >/dev/null 2>&1; then
     deactivate
@@ -198,7 +230,6 @@ _venv_deactivate() {
     echo "no active venv to deactivate"
   fi
 }
-
 venv() {
   case "$1" in
     a|activate) shift; _venv_activate "$@" ;;
@@ -207,10 +238,12 @@ venv() {
     *) command venv-cli --wrapped "$@" ;;
   esac
 }
-
+HEREDOC
+      
+      if __completions_available zsh; then
+        cat << 'HEREDOC'
 # zsh completions
 #compdef venv
-
 _venv() {
   local -a commands
   commands=(
@@ -223,11 +256,9 @@ _venv() {
     'doctor:performs health check'
     'shellenv:echoes shell setup'
   )
-
   _arguments -C \
     '1: :->command' \
     '*: :->args'
-
   case $state in
     command)
       _describe -t commands 'venv commands' commands
@@ -246,9 +277,9 @@ _venv() {
       ;;
   esac
 }
-
 _venv "$@"
 HEREDOC
+      fi
       ;;
     fish)
       cat << 'HEREDOC'
@@ -263,7 +294,6 @@ function _venv_activate
     echo "venv not found: '$target'"
   end
 end
-
 function _venv_deactivate
   if functions -q deactivate
     deactivate
@@ -271,7 +301,6 @@ function _venv_deactivate
     echo "no active venv to deactivate"
   end
 end
-
 function venv
   switch $argv[1]
     case a activate
@@ -284,7 +313,10 @@ function venv
       command venv-cli --wrapped $argv
   end
 end
-
+HEREDOC
+      
+      if __completions_available fish; then
+        cat << 'HEREDOC'
 # fish completions
 function __venv_complete_commands
   echo help\tshows\ help
@@ -296,12 +328,12 @@ function __venv_complete_commands
   echo doctor\tperforms\ health\ check
   echo shellenv\techoes\ shell\ setup
 end
-
 complete -c venv -f
 complete -c venv -n "__fish_use_subcommand" -a "(__venv_complete_commands)"
 complete -c venv -n "__fish_seen_subcommand_from init activate" -a "(__fish_complete_directories)"
 complete -c venv -n "__fish_seen_subcommand_from remove" -a "(__fish_complete_directories)" -s f -d "force removal without confirmation"
 HEREDOC
+      fi
       ;;
     *)
       # default to bash
@@ -314,7 +346,6 @@ _venv_activate() {
     echo "venv not found: '$target'"
   fi
 }
-
 _venv_deactivate() {
   if command -v deactivate >/dev/null 2>&1; then
     deactivate
@@ -322,7 +353,6 @@ _venv_deactivate() {
     echo "no active venv to deactivate"
   fi
 }
-
 venv() {
   case "$1" in
     a|activate) shift; _venv_activate "$@" ;;
@@ -331,7 +361,10 @@ venv() {
     *) command venv-cli --wrapped "$@" ;;
   esac
 }
-
+HEREDOC
+      
+      if __completions_available bash; then
+        cat << 'HEREDOC'
 # bash completions
 _venv_completion() {
   local cur prev words cword
@@ -354,9 +387,9 @@ _venv_completion() {
       ;;
   esac
 }
-
 complete -F _venv_completion venv
 HEREDOC
+      fi
       ;;
   esac
 }
