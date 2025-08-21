@@ -122,7 +122,7 @@ _venv_init() {
     return 0
   fi
 
-  # ensure python3 is available
+  # ensure python3 and venv are available
   if ! command -v python3 >/dev/null 2>&1; then
     echo "${RED}python3 not found${RST}, please ensure it is installed and on your PATH" >&2
     exit 1
@@ -138,7 +138,7 @@ _venv_init() {
     echo "${RED}failed to create venv${RST}: '$target'" >&2
     [[ -n "$create_output" ]] && echo "$create_output" >&2
     if [[ "$create_output" == *"No module named"* ]]; then
-      __indent "hint: your python3 installation is missing the 'venv' module" >&2
+      __indent "hint: your python3 installation is missing the venv module" >&2
     fi
     exit "$create_status"
   fi
@@ -378,75 +378,91 @@ _venv_doctor() {
   (
     local passed=0
     local total=0
-    local rc_path current_shell hint
+    local current_shell rc_path rc_line hint
+
     printf "%s\n\n" "checking venv installation... 🔍"
 
-    # check 1: get rc file path
-    rc_path=$(__rc_file)
+    # check python3 presence and version
+    (( total++ ))
+    set +e
+    if command -v python3 >/dev/null 2>&1; then
+      py_ver=$(python3 --version 2>&1 | awk '{print $2}')
+      py_major=${py_ver%%.*}
+      if (( py_major >= 3 )); then
+        # check if venv is available
+        python3 -m venv -h >/dev/null 2>&1
+        if (( $? == 0 )); then
+          echo "${GRN}${total}. python3 and venv module ok${RST} (version $py_ver)"
+          (( passed++ ))
+        else
+          echo "${RED}${total}. python3 venv module not available${RST} (version $py_ver)"
+          __indent "ensure your python3 installation includes the venv module"
+        fi
+      else
+        echo "${RED}${total}. python3 version is < 3${RST} (found $py_ver)"
+        __indent "install Python 3.0 or higher"
+      fi
+    else
+      echo "${RED}${total}. python3 not found in PATH${RST}"
+      __indent "install Python 3 and ensure it is on your PATH"
+    fi
+    set -e
+
+    # detect shell and rc file
     current_shell=$(__detect_shell)
+    rc_path=$(__rc_file)
+
     (( total++ ))
     if [[ -f "$rc_path" ]]; then
       echo "${GRN}${total}. found shell rc file${RST}: $rc_path"
       (( passed++ ))
     else
-      echo "${YLW}${total}. shell not supported or missing rc file${RST}: '$rc_path'"
-      hint="if your shell ('$current_shell') is supported, create its rc file with \n"
-      hint+="'touch $rc_path'"
+      echo "${YLW}${total}. shell rc file missing${RST}: $rc_path"
+      __indent "you may need to create it: touch $rc_path"
+    fi
+
+    # check rc file contains venv initialization
+    (( total++ ))
+    if [[ -f "$rc_path" ]] && grep -q 'venv-cli shellenv' "$rc_path"; then
+      echo "${GRN}${total}. venv-cli shellenv call found in rc file${RST}"
+      (( passed++ ))
+    else
+      echo "${YLW}${total}. shellenv call not found in rc file${RST}"
+      hint="add the correct line for your shell"
+      if [[ "$current_shell" == "zsh" || "$current_shell" == "bash" ]]; then
+        hint+=": ${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
+      elif [[ "$current_shell" == "fish" ]]; then
+        hint+=": ${BLD}venv-cli shellenv | source${RST}"
+      fi
       __indent "$hint"
     fi
 
-    # check 2: try to run shellenv command and validate its output
+    # check if venv command would be available in a fresh shell
     (( total++ ))
     set +e
-    shellenv_stdout=$(venv-cli shellenv 2>/dev/null)
-    shellenv_exit=$?
-    if [[ $shellenv_exit -eq 0 ]]; then
-      (eval "$shellenv_stdout" >/dev/null 2>&1)
-      eval_exit=$?
-      if [[ $eval_exit -eq 0 ]]; then
-        echo "${GRN}${total}. shellenv works and produces valid shell code${RST}"
-        (( passed++ ))
-      else
-        echo "${YLW}${total}. shellenv works but produces invalid shell code${RST}"
-        __indent "command succeeded but evaluation failed"
-      fi
+    shell_check=$(
+      "$current_shell" -i -c '
+        if command -v venv >/dev/null 2>&1 && \
+          command -v _venv_activate >/dev/null 2>&1 && \
+          command -v _venv_deactivate >/dev/null 2>&1; then
+          echo OK
+        fi
+      ' 2>/dev/null
+    )
+    if [[ "$shell_check" == "OK" ]]; then
+      echo "${GRN}${total}. new shell loads venv cli correctly${RST}"
+      (( passed++ ))
     else
-      echo "${RED}${total}. shellenv command failed${RST}"
-      __indent "check that ${BLD}venv-cli${RST} is on your PATH"
+      echo "${RED}${total}. new shell does not load venv cli${RST}"
     fi
     set -e
-
-    # checks 3-4: functions
-    (( total++ ))
-    if command -v _venv_activate >/dev/null 2>&1; then
-      echo "${GRN}${total}. activate function is defined${RST}"
-      (( passed++ ))
-    else
-      echo "${RED}${total}. activate function is missing${RST}"
-    fi
-
-    (( total++ ))
-    if command -v _venv_deactivate >/dev/null 2>&1; then
-      echo "${GRN}${total}. deactivate function is defined${RST}"
-      (( passed++ ))
-    else
-      echo "${RED}${total}. deactivate function is missing${RST}"
-    fi
 
     # summary
     if (( passed == total )); then
       printf "\n%s\n" "${GRN}health check passed!${RST} 🚀 ($passed/$total)"
     else
       printf "\n%s\n" "${RED}health check failed!${RST} 😱 ($passed/$total)"
-      hint="venv may not be installed correctly; please check that:\n"
-      hint+=" 1. venv-cli is on your PATH somewhere\n"
-      hint+=" 2. your shell's rc file contains: "
-      if [[ "$current_shell" == "zsh" || "$current_shell" == "bash" ]]; then
-        hint+="${BLD}eval \"\$(venv-cli shellenv)\"${RST}"
-      elif [[ "$current_shell" == "fish" ]]; then
-        hint+="${BLD}venv-cli shellenv | source${RST}"
-      fi
-      __indent "$hint"
+      __indent "ensure venv-cli is on your PATH and your shell rc file contains the proper initialization"
       return 1
     fi
   )
