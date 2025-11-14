@@ -64,7 +64,7 @@ sign_node() {
   printf "signing: %s.. " "$node_name"
   if tailscale lock sign "$node_key" >/dev/null 2>&1; then
     echo "${GRN}done${RST}"
-    echo "         ($node_key)"
+    echo "    ($node_key)"
   else
     echo "${RED}failed${RST}"
   fi
