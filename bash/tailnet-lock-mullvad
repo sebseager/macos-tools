@@ -65,10 +65,11 @@ sign_node() {
   if tailscale lock sign "$node_key" >/dev/null 2>&1; then
     echo "${GRN}done${RST}"
     echo "    ($node_key)"
+    return 0
   else
     echo "${RED}failed${RST}"
+    return 1
   fi
-  sleep 0.1  # avoid rate limits
 }
 
 main() {
@@ -96,7 +97,6 @@ main() {
   # extract nodes
   local mullvad_nodes
   mullvad_nodes=$(filter_mullvad_nodes "$status_json")
-  
   if [[ -z "$mullvad_nodes" ]]; then
     echo "no unsigned mullvad nodes found"
     exit 0
@@ -113,9 +113,14 @@ main() {
   
   # sign each mullvad node
   local count=0
+  local errors=0
   while IFS=$'\t' read -r node_name node_key; do
-    sign_node "$node_key" "$node_name" "$dry_run"
-    ((count++))
+    if sign_node "$node_key" "$node_name" "$dry_run"; then
+      ((count++))
+    else
+      ((errors++))
+    fi
+    sleep 0.1  # avoid rate limits
   done <<< "$mullvad_nodes"
   
   if [[ "$dry_run" == "true" ]]; then
@@ -123,7 +128,7 @@ main() {
     echo "${YLW}[dry run]${RST} would have signed $count nodes"
   else
     echo ""
-    echo "signed $count mullvad nodes"
+    echo "signed $count mullvad nodes, $errors errors"
   fi
 }
 
