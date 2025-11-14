@@ -14,7 +14,6 @@ RST=$(tput sgr0)
 RED=$(tput setaf 1)
 GRN=$(tput setaf 2)
 YLW=$(tput setaf 3)
-CYN=$(tput setaf 6)
 
 ##
 # helpers
@@ -38,30 +37,30 @@ ${BLD}optional args${RST}:
 HEREDOC
 }
 
-die() {
-  echo "${RED}error: $*${RST}" >&2
-  exit 1
-}
-
 ##
 # main functions
 ##
 
 filter_mullvad_nodes() {
   local status_json="$1"
-  echo "$status_json" | jq -r '.FilteredPeers[] | select(.Name | endswith(".mullvad.ts.net.")) | "\(.Name)\t\(.NodeKey)"'
+  local result
+  result=$(echo "$status_json" | jq -r '.FilteredPeers[] | select(.Name | endswith(".mullvad.ts.net.")) | "\(.Name)\t\(.NodeKey)"' 2>&1)
+  local jq_exit=$?
+  if [[ $jq_exit -ne 0 ]]; then
+    echo "${RED}error:${RST} $result" >&2
+    return 1
+  fi
+  echo "$result"
 }
 
 sign_node() {
   local node_key="$1"
   local node_name="$2"
   local dry_run="${3:-false}"
-  
   if [[ "$dry_run" == "true" ]]; then
     echo "${YLW}[dry run]${RST} $node_name $node_key"
     return 0
   fi
-  
   printf "signing: %s.. " "$node_name"
   if tailscale lock sign "$node_key" >/dev/null 2>&1; then
     echo "${GRN}done${RST}"
@@ -69,9 +68,7 @@ sign_node() {
   else
     echo "${RED}failed${RST}"
   fi
-  
-  # sleep to avoid rate limits
-  sleep 0.1
+  sleep 0.1  # avoid rate limits
 }
 
 main() {
