@@ -1,1 +1,11 @@
+#
+# my aliases
+#
 
+alias ls='ls --color=auto'
+alias l.='ls -d .*'
+alias ll='ls -lah'
+alias grep='grep --color'
+alias big='du -am | sort -nr | head -n 20'
+alias weather='curl "v2d.wttr.in/?F"'
+alias activate=". .venv/bin/activate"
